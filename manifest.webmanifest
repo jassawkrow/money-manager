@@ -1,18 +1,26 @@
 {
+  "id": "/?source=pwa",
   "name": "Paise — Money Manager",
   "short_name": "Paise",
-  "description": "Track income, expenses, monthly targets and budgets with beautiful stats.",
-  "start_url": "./index.html",
+  "description": "Track income from freelancing, painting, commissions, websites, shops and design agency work. Set monthly targets and budget limits. Beautiful charts, insights and dark mode included.",
+  "start_url": "./index.html?source=pwa",
   "scope": "./",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
   "orientation": "portrait",
   "background_color": "#000000",
   "theme_color": "#0a84ff",
   "lang": "en",
+  "dir": "ltr",
   "categories": ["finance", "productivity", "lifestyle"],
   "icons": [
-    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "screenshots": [
+    { "src": "icons/screenshot-home.png", "sizes": "390x844", "type": "image/png", "form_factor": "narrow", "label": "Home dashboard" },
+    { "src": "icons/screenshot-stats.png", "sizes": "390x844", "type": "image/png", "form_factor": "narrow", "label": "Stats and charts" }
   ]
 }
