@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#0a84ff" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Paise" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="description" content="An aesthetic money tracker for freelancers, designers and creators." />
+  <title>Paise — Money Manager</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" type="image/svg+xml" href="icons/icon.svg" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Splash / boot -->
+    <div id="splash" class="splash">
+      <div class="splash-logo">
+        <svg viewBox="0 0 64 64" width="72" height="72" aria-hidden="true">
+          <defs>
+            <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#34c759"/>
+              <stop offset="100%" stop-color="#0a84ff"/>
+            </linearGradient>
+          </defs>
+          <rect x="4" y="4" width="56" height="56" rx="16" fill="url(#g1)"/>
+          <text x="32" y="42" text-anchor="middle" font-family="-apple-system, SF Pro Display, system-ui" font-weight="800" font-size="32" fill="white">₹</text>
+        </svg>
+      </div>
+      <div class="splash-title">Paise</div>
+    </div>
+
+    <!-- Header -->
+    <header class="app-header" id="app-header">
+      <div class="header-row">
+        <div class="header-greet">
+          <div class="header-hello" id="header-hello">Hello</div>
+          <div class="header-name" id="header-name">there</div>
+        </div>
+        <button class="avatar-btn" id="avatar-btn" aria-label="Open profile">
+          <span id="avatar-initial">P</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main content area, swaps based on tab -->
+    <main id="view" class="view"></main>
+
+    <!-- Floating add button -->
+    <button id="fab" class="fab" aria-label="Add transaction">
+      <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
+        <path d="M12 5v14M5 12h14" stroke="white" stroke-width="2.6" stroke-linecap="round"/>
+      </svg>
+    </button>
+
+    <!-- Tab bar -->
+    <nav class="tabbar" id="tabbar">
+      <button class="tab" data-tab="home" aria-label="Home">
+        <svg viewBox="0 0 24 24" width="24" height="24"><path d="M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+        <span>Home</span>
+      </button>
+      <button class="tab" data-tab="transactions" aria-label="Transactions">
+        <svg viewBox="0 0 24 24" width="24" height="24"><path d="M4 7h13M4 7l3-3M4 7l3 3M20 17H7M20 17l-3-3M20 17l-3 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>History</span>
+      </button>
+      <button class="tab tab-spacer" disabled aria-hidden="true"><span></span></button>
+      <button class="tab" data-tab="stats" aria-label="Stats">
+        <svg viewBox="0 0 24 24" width="24" height="24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <span>Stats</span>
+      </button>
+      <button class="tab" data-tab="settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" width="24" height="24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+        <span>Settings</span>
+      </button>
+    </nav>
+
+    <!-- Sheet (modal) -->
+    <div id="sheet-backdrop" class="sheet-backdrop"></div>
+    <div id="sheet" class="sheet" role="dialog" aria-modal="true" aria-hidden="true">
+      <div class="sheet-handle"></div>
+      <div id="sheet-content"></div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </div>
+
+  <script src="js/app.js" type="module"></script>
+</body>
+</html>
