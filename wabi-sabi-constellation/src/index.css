@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: #f5f0e8;
+  color: #1f1b16;
+  font-family: 'Lora', 'EB Garamond', Georgia, serif;
+  font-feature-settings: 'liga', 'kern';
+  -webkit-font-smoothing: antialiased;
+}
+
+/* A faint, hand-laid paper grain for the page background. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.35;
+  background-image:
+    radial-gradient(rgba(60, 50, 40, 0.05) 1px, transparent 1px),
+    radial-gradient(rgba(60, 50, 40, 0.04) 1px, transparent 1px);
+  background-size: 3px 3px, 7px 7px;
+  background-position: 0 0, 1px 2px;
+}
+
+/* Soft, slow transitions everywhere. */
+button,
+input,
+textarea {
+  transition: all 240ms ease;
+}
+
+input,
+textarea {
+  background: transparent;
+}
+
+textarea {
+  resize: vertical;
+}
+
+/* A muted scrollbar that doesn't shout. */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(60, 50, 40, 0.12);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(60, 50, 40, 0.22);
+}
+
+/* The slow appearance of a tension card. */
+@keyframes settle {
+  0% {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.settle {
+  animation: settle 900ms ease both;
+}
+
+/* The slow pulse of the "looking" state. */
+@keyframes breath {
+  0%, 100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.breath {
+  animation: breath 2400ms ease-in-out infinite;
+}
