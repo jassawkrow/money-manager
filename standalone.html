@@ -612,10 +612,12 @@ input, select, textarea {
   <script>
 // =====================================================================
 //  Paise — money tracker (vanilla JS PWA)
-//  Storage: localStorage. No backend, no tracking.
+//  Storage: localStorage + optional Google Drive backup
 // =====================================================================
 
 const STORAGE_KEY = "paise.v1";
+const DRIVE_FILENAME = "paise-data.json";
+const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.appdata";
 
 const DEFAULT_INCOME_CATS = [
   { id: "freelance",   name: "Freelancing",    color: "#0a84ff", icon: "laptop" },
@@ -697,9 +699,231 @@ function load() {
     };
   } catch (e) { return defaultState(); }
 }
-function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+function save() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  driveAutoBackup();
+}
 
 let state = load();
+
+// ---------------------------------------------------------------------
+//  Google Drive backup
+// ---------------------------------------------------------------------
+let _googleUser = null;
+try { _googleUser = JSON.parse(localStorage.getItem("paise.gUser") || "null"); } catch(e){}
+let _driveToken = null;
+let _gapiReady = false;
+let _tokenClient = null;
+let _backupDebounce = null;
+
+function getDriveClientId() {
+  return localStorage.getItem("paise.gcid") || "";
+}
+
+function driveReady() {
+  return !!(_driveToken && _gapiReady && getDriveClientId());
+}
+
+function driveAutoBackup() {
+  if (!driveReady()) return;
+  clearTimeout(_backupDebounce);
+  _backupDebounce = setTimeout(() => backupToDrive(true), 3000);
+}
+
+async function _loadScript(src) {
+  if (document.querySelector(`script[src="${src}"]`)) return;
+  return new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = src; s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
+}
+
+async function _initGapi() {
+  await _loadScript("https://apis.google.com/js/api.js");
+  await new Promise(res => gapi.load("client", res));
+  await gapi.client.init({});
+  await gapi.client.load("https://www.googleapis.com/discovery/v1/apis/drive/v3/rest");
+  _gapiReady = true;
+}
+
+async function _initGis(clientId) {
+  await _loadScript("https://accounts.google.com/gsi/client");
+  _tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: clientId,
+    scope: DRIVE_SCOPE + " https://www.googleapis.com/auth/userinfo.profile",
+    callback: async (resp) => {
+      if (resp.error) { toast("Google sign-in failed: " + resp.error); return; }
+      _driveToken = resp.access_token;
+      gapi.client.setToken({ access_token: _driveToken });
+      // Fetch profile
+      try {
+        const info = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+          headers: { Authorization: "Bearer " + _driveToken }
+        }).then(r => r.json());
+        _googleUser = { name: info.name, email: info.email, picture: info.picture };
+        localStorage.setItem("paise.gUser", JSON.stringify(_googleUser));
+      } catch(e) {}
+      toast("Signed in as " + (_googleUser?.name || "Google user"));
+      if (currentTab === "settings") setTab("settings");
+      await _offerRestore();
+    }
+  });
+}
+
+async function signInGoogle() {
+  const clientId = getDriveClientId();
+  if (!clientId) {
+    openSetupClientId();
+    return;
+  }
+  try {
+    toast("Connecting to Google…");
+    await Promise.all([_initGapi(), _initGis(clientId)]);
+    _tokenClient.requestAccessToken({ prompt: "consent" });
+  } catch(e) {
+    toast("Failed to connect — check Client ID");
+    console.error(e);
+  }
+}
+
+function signOutGoogle() {
+  if (_driveToken) {
+    google.accounts.oauth2.revoke(_driveToken, () => {});
+    _driveToken = null;
+    gapi.client?.setToken?.(null);
+  }
+  _googleUser = null;
+  localStorage.removeItem("paise.gUser");
+  toast("Signed out of Google");
+  if (currentTab === "settings") setTab("settings");
+}
+
+async function backupToDrive(silent = false) {
+  if (!driveReady()) { if (!silent) toast("Sign in to Google first"); return; }
+  try {
+    const data = JSON.stringify(state);
+    const list = await gapi.client.drive.files.list({
+      spaces: "appDataFolder", q: `name="${DRIVE_FILENAME}"`, fields: "files(id)"
+    });
+    const fileId = list.result.files?.[0]?.id;
+    const boundary = "paise__boundary__xyz";
+    const meta = JSON.stringify(fileId ? {} : { name: DRIVE_FILENAME, parents: ["appDataFolder"] });
+    const body = `--${boundary}\r\nContent-Type: application/json\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${data}\r\n--${boundary}--`;
+    const url = fileId
+      ? `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`
+      : "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart";
+    const r = await fetch(url, {
+      method: fileId ? "PATCH" : "POST",
+      headers: { Authorization: "Bearer " + _driveToken, "Content-Type": `multipart/related; boundary=${boundary}` },
+      body
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    localStorage.setItem("paise.lastBackup", new Date().toISOString());
+    if (!silent) toast("Backed up to Google Drive ✓");
+    if (currentTab === "settings") setTab("settings");
+  } catch(e) {
+    if (!silent) toast("Backup failed — try signing in again");
+    console.error("drive backup:", e);
+  }
+}
+
+async function restoreFromDrive() {
+  if (!_googleUser) { toast("Sign in to Google first"); return; }
+  const clientId = getDriveClientId();
+  if (!clientId) { openSetupClientId(); return; }
+  try {
+    await Promise.all([_initGapi(), _initGis(clientId)]);
+    if (!_driveToken) {
+      _tokenClient.requestAccessToken({ prompt: "" });
+      toast("Please sign in to restore");
+      return;
+    }
+    toast("Looking for backup…");
+    const list = await gapi.client.drive.files.list({
+      spaces: "appDataFolder", q: `name="${DRIVE_FILENAME}"`, fields: "files(id,modifiedTime)"
+    });
+    if (!list.result.files?.length) { toast("No backup found on Drive"); return; }
+    const fileId = list.result.files[0].id;
+    const resp = await gapi.client.drive.files.get({ fileId, alt: "media" });
+    const data = typeof resp.result === "string" ? JSON.parse(resp.result) : resp.result;
+    state = { ...defaultState(), ...data,
+      profile: { ...defaultState().profile, ...(data.profile||{}) },
+      settings: { ...defaultState().settings, ...(data.settings||{}) },
+      categories: {
+        income: data.categories?.income || DEFAULT_INCOME_CATS,
+        expense: data.categories?.expense || DEFAULT_EXPENSE_CATS,
+      },
+      transactions: data.transactions || []
+    };
+    save();
+    applyTheme(); updateHeader(); setTab("home");
+    toast("Data restored from Google Drive ✓");
+  } catch(e) {
+    toast("Restore failed — " + e.message);
+    console.error("drive restore:", e);
+  }
+}
+
+async function _offerRestore() {
+  if (!driveReady()) return;
+  try {
+    const list = await gapi.client.drive.files.list({
+      spaces: "appDataFolder", q: `name="${DRIVE_FILENAME}"`, fields: "files(id,modifiedTime)"
+    });
+    if (!list.result.files?.length) return;
+    const modTime = new Date(list.result.files[0].modifiedTime);
+    openSheet(`
+      <h2>Backup found</h2>
+      <p style="color:var(--text-3);font-size:15px;line-height:1.5;margin-top:6px;">
+        Found a Paise backup on your Drive from<br>
+        <b style="color:var(--text);">${modTime.toLocaleDateString("en-IN",{day:"numeric",month:"long",year:"numeric"})}</b>.
+        <br><br>Restore it now?
+      </p>
+      <div class="sheet-actions">
+        <button class="btn btn-secondary" id="skip-restore">Skip</button>
+        <button class="btn btn-primary" id="do-restore">Restore data</button>
+      </div>
+    `);
+    document.getElementById("skip-restore").onclick = closeSheet;
+    document.getElementById("do-restore").onclick = () => { closeSheet(); restoreFromDrive(); };
+  } catch(e) {}
+}
+
+function openSetupClientId() {
+  openSheet(`
+    <h2>Set up Google Drive</h2>
+    <p class="muted" style="font-size:14px;line-height:1.5;margin:0 0 14px;">
+      Paste your Google OAuth Client ID below. To get one (free, 2 min):
+    </p>
+    <ol style="color:var(--text-3);font-size:13.5px;line-height:1.8;padding-left:18px;margin:0 0 16px;">
+      <li>Go to <b style="color:var(--text);">console.cloud.google.com</b></li>
+      <li>Create project → APIs & Services → Enable APIs → <b style="color:var(--text);">Google Drive API</b></li>
+      <li>Credentials → Create → <b style="color:var(--text);">OAuth 2.0 Client ID</b> → Web application</li>
+      <li>Add your Netlify URL as Authorized JS origin</li>
+      <li>Copy the Client ID and paste it below</li>
+    </ol>
+    <div class="field"><label>Google OAuth Client ID</label>
+      <input id="gcid-input" placeholder="xxxxx.apps.googleusercontent.com" value="${escapeHtml(getDriveClientId())}"/>
+    </div>
+    <div class="sheet-actions">
+      <button class="btn btn-secondary" id="gcid-cancel">Cancel</button>
+      <button class="btn btn-primary" id="gcid-save">Save & Sign in</button>
+    </div>
+  `);
+  setTimeout(() => document.getElementById("gcid-input")?.focus(), 300);
+  document.getElementById("gcid-cancel").onclick = closeSheet;
+  document.getElementById("gcid-save").onclick = async () => {
+    const id = document.getElementById("gcid-input").value.trim();
+    if (!id || !id.includes(".apps.googleusercontent.com")) {
+      toast("Paste a valid Client ID (ends in .apps.googleusercontent.com)");
+      return;
+    }
+    localStorage.setItem("paise.gcid", id);
+    closeSheet();
+    await signInGoogle();
+  };
+}
 
 // ---------------------------------------------------------------------
 //  Helpers
@@ -992,9 +1216,74 @@ VIEWS.stats = () => {
   `;
 };
 
+function driveSettingsSection() {
+  const lastBackup = localStorage.getItem("paise.lastBackup");
+  const lastBackupStr = lastBackup
+    ? new Date(lastBackup).toLocaleString("en-IN",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})
+    : null;
+
+  if (_googleUser) {
+    return `
+      <div class="section-title">Google Drive Backup</div>
+      <div class="list">
+        <div class="list-row">
+          <div style="width:36px;height:36px;border-radius:50%;overflow:hidden;flex-shrink:0;background:var(--bg-card-2);display:grid;place-items:center;">
+            ${_googleUser.picture
+              ? `<img src="${_googleUser.picture}" width="36" height="36" referrerpolicy="no-referrer" style="border-radius:50%;"/>`
+              : `<span style="font-weight:700;font-size:16px;">${_googleUser.name.charAt(0)}</span>`}
+          </div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:600;font-size:15px;">${escapeHtml(_googleUser.name)}</div>
+            <div class="muted" style="font-size:12px;">${escapeHtml(_googleUser.email)}</div>
+          </div>
+        </div>
+        <div class="list-row">
+          <div class="icon" style="background:#4285f4;">${svg("globe","#fff",18)}</div>
+          <div class="label">Last backup</div>
+          <div class="value" style="font-size:13px;">${lastBackupStr || "Never"}</div>
+        </div>
+        <button class="list-row pressable" data-action="backup-now">
+          <div class="icon" style="background:#34a853;">${svg("star","#fff",18)}</div>
+          <div class="label">Back up now</div>
+          <span class="chev">›</span>
+        </button>
+        <button class="list-row pressable" data-action="restore-drive">
+          <div class="icon" style="background:#ea4335;">${svg("wallet","#fff",18)}</div>
+          <div class="label">Restore from Drive</div>
+          <span class="chev">›</span>
+        </button>
+        <button class="list-row pressable" data-action="sign-out-google" style="color:var(--danger);">
+          <div class="icon" style="background:var(--danger);">${svg("dots","#fff",18)}</div>
+          <div class="label">Sign out</div>
+          <span class="chev">›</span>
+        </button>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="section-title">Google Drive Backup</div>
+    <div class="card" style="display:flex;align-items:center;gap:16px;padding:18px;">
+      <div style="width:48px;height:48px;border-radius:16px;background:rgba(66,133,244,0.12);display:grid;place-items:center;flex-shrink:0;">
+        <svg viewBox="0 0 24 24" width="28" height="28"><path d="M4.5 20.5l3-5.5h11l3 5.5H4.5z" fill="#4285f4"/><path d="M12 4L4.5 15h7L12 4z" fill="#34a853"/><path d="M19.5 15L15 6.5 12 4l-1 1.5L14.5 15H19.5z" fill="#ea4335"/></svg>
+      </div>
+      <div style="flex:1;">
+        <div style="font-weight:600;font-size:16px;">Sync with Google Drive</div>
+        <div class="muted" style="font-size:13px;margin-top:2px;">Auto-backup your data. Restore on any device.</div>
+      </div>
+    </div>
+    <button class="btn btn-primary btn-block mt-8" data-action="sign-in-google" style="display:flex;align-items:center;justify-content:center;gap:10px;">
+      <svg viewBox="0 0 24 24" width="20" height="20"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+      Sign in with Google
+    </button>
+  `;
+}
+
 VIEWS.settings = () => {
   const s = state.settings;
   return `
+    ${driveSettingsSection()}
+
     <div class="section-title">Profile</div>
     <div class="list">
       <button class="list-row pressable" data-action="edit-profile">
@@ -1646,6 +1935,10 @@ function attachAfterRender(tab) {
     view.querySelector('[data-action="export"]')?.addEventListener("click", exportData);
     view.querySelector('[data-action="import"]')?.addEventListener("click", importData);
     view.querySelector('[data-action="reset"]')?.addEventListener("click", eraseAll);
+    view.querySelector('[data-action="sign-in-google"]')?.addEventListener("click", signInGoogle);
+    view.querySelector('[data-action="sign-out-google"]')?.addEventListener("click", signOutGoogle);
+    view.querySelector('[data-action="backup-now"]')?.addEventListener("click", () => backupToDrive(false));
+    view.querySelector('[data-action="restore-drive"]')?.addEventListener("click", restoreFromDrive);
   }
 }
 
