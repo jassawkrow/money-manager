@@ -779,7 +779,8 @@ VIEWS.home = () => {
   const expense = sumBy(txns, t => t.type === "expense");
   const net = income - expense;
   const target = state.settings.monthlyTarget || 0;
-  const pct = target > 0 ? Math.min(100, Math.round((income / target) * 100)) : 0;
+  const savings = Math.max(0, net); // savings = income - expenses, floor at 0
+  const pct = target > 0 ? Math.min(100, Math.round((savings / target) * 100)) : 0;
   const budget = state.settings.monthlyBudget || 0;
   const spendPct = budget > 0 ? Math.min(100, Math.round((expense / budget) * 100)) : 0;
 
@@ -815,11 +816,17 @@ VIEWS.home = () => {
 
     <div class="section-title row"><span>Monthly Goal</span><button class="link" id="edit-target">Edit</button></div>
     <div class="card goal">
-      ${ringSvg(pct, "var(--accent)")}
+      ${ringSvg(pct, pct >= 100 ? "var(--accent-2)" : "var(--accent)")}
       <div class="goal-info">
-        <div class="goal-title">Earn target</div>
-        <div class="goal-amount">${fmtMoney(income)} <span class="muted" style="font-size:14px;font-weight:500;">of ${fmtMoney(target)}</span></div>
-        <div class="goal-remaining">${pct >= 100 ? "🎉 Target reached!" : `${fmtMoney(Math.max(0,target-income))} to go`}</div>
+        <div class="goal-title">Monthly savings goal</div>
+        <div class="goal-amount">${fmtMoney(savings)} <span class="muted" style="font-size:14px;font-weight:500;">of ${fmtMoney(target)}</span></div>
+        <div class="goal-remaining" style="color:${net < 0 ? 'var(--danger)' : 'var(--text-3)'};">
+          ${net < 0
+            ? `Overspent by ${fmtMoney(Math.abs(net))} this month`
+            : pct >= 100
+              ? `Goal reached! ${fmtMoney(savings - target)} extra saved`
+              : `${fmtMoney(Math.max(0, target - savings))} more to save`}
+        </div>
       </div>
     </div>
 
@@ -1008,7 +1015,7 @@ VIEWS.settings = () => {
     <div class="list">
       <button class="list-row pressable" data-action="edit-target">
         <div class="icon" style="background:#ff9f0a;">${svg("star","#fff",18)}</div>
-        <div class="label">Monthly target</div>
+        <div class="label">Monthly savings goal</div>
         <div class="value">${fmtMoney(s.monthlyTarget)}</div>
         <span class="chev">›</span>
       </button>
@@ -1597,7 +1604,7 @@ function attachAfterRender(tab) {
   });
 
   if (tab === "home") {
-    document.getElementById("edit-target")?.addEventListener("click", () => editTargetSheet("monthlyTarget", "Monthly target"));
+    document.getElementById("edit-target")?.addEventListener("click", () => editTargetSheet("monthlyTarget", "Monthly savings goal"));
     document.getElementById("edit-budget")?.addEventListener("click", () => editTargetSheet("monthlyBudget", "Monthly budget"));
     document.getElementById("see-history")?.addEventListener("click", () => setTab("transactions"));
     document.getElementById("show-all-inc")?.addEventListener("click", () => setTab("stats"));
@@ -1621,7 +1628,7 @@ function attachAfterRender(tab) {
       title: "Currency symbol", placeholder: "₹", value: state.profile.currency,
       onSave: v => { state.profile.currency = (v||"₹").slice(0,3); save(); setTab("settings"); }
     }));
-    view.querySelector('[data-action="edit-target"]')?.addEventListener("click", () => editTargetSheet("monthlyTarget", "Monthly target"));
+    view.querySelector('[data-action="edit-target"]')?.addEventListener("click", () => editTargetSheet("monthlyTarget", "Monthly savings goal"));
     view.querySelector('[data-action="edit-budget"]')?.addEventListener("click", () => editTargetSheet("monthlyBudget", "Monthly budget"));
     view.querySelector('[data-action="edit-limit-pct"]')?.addEventListener("click", () => openSimpleEdit({
       title: "Spend limit % of income", placeholder: "60", type: "number", value: state.settings.spendLimitPct, suffix: "%",
