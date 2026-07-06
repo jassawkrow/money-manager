@@ -1,55 +1,42 @@
-const SYSTEM_PROMPT =
-  "You analyze the user's personal notes and surface non-obvious semantic connections between them. You look for pairs of notes that are about adjacent or related concepts but have never explicitly referenced each other — the connections the user hasn't noticed yet.\n\n" +
-  "Do NOT surface obvious connections (e.g., two notes that are clearly about the same project, or that already share a topic word). Surface the surprising ones — pairs where the connection is real but the user would pause and say 'oh, I hadn't connected those.'\n\n" +
-  "For each pair, return:\n" +
-  "- The two note titles\n" +
-  "- 'thread': a 1-2 sentence explanation of the implicit connection\n" +
-  "- 'bridge': a question the user could sit with to explore the connection further — should feel like a creative writing prompt, not a quiz\n\n" +
-  "Return 3-5 pairs as a valid JSON array in this exact shape, with no preamble or markdown:\n" +
-  "[{\"noteA\": \"title\", \"noteB\": \"title\", \"thread\": \"...\", \"bridge\": \"...\"}]";
-
 const MODEL = 'claude-sonnet-4-6';
 const API_URL = 'https://api.anthropic.com/v1/messages';
-const KEY_STORAGE = 'wsc.apiKey.v1';
 
 export function getStoredKey() {
   return (
-    import.meta.env.VITE_ANTHROPIC_API_KEY ||
-    localStorage.getItem(KEY_STORAGE) ||
+    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_ANTHROPIC_API_KEY) ||
+    localStorage.getItem('wsc.apiKey.v1') ||
     ''
   );
 }
 
 export function setStoredKey(key) {
-  if (key) localStorage.setItem(KEY_STORAGE, key);
-  else localStorage.removeItem(KEY_STORAGE);
+  if (key) localStorage.setItem('wsc.apiKey.v1', key);
+  else localStorage.removeItem('wsc.apiKey.v1');
 }
 
-function serializeNotes(notes) {
-  return notes
-    .map((n) => `Title: ${n.title}\nBody: ${n.body}`)
-    .join('\n\n');
+function buildSystemPrompt(notes) {
+  const base =
+    'You are a personal thinking partner. You help the user brainstorm, ' +
+    'spot patterns, develop ideas, and think through problems. ' +
+    'Be direct, concise, and genuinely useful — not sycophantic. ' +
+    "Ask good follow-up questions when it would help. Don't pad your responses.";
+
+  if (!notes || notes.length === 0) return base;
+
+  const notesBlock = notes
+    .map((n) => `[${n.title}]\n${n.body}`)
+    .join('\n\n---\n\n');
+
+  return (
+    base +
+    `\n\nYou have access to the user's saved notes below. Reference them naturally — ` +
+    `surface connections, quote back relevant fragments, and help them build on what they've already been thinking.\n\n` +
+    `USER'S NOTES:\n\n${notesBlock}`
+  );
 }
 
-function extractJSON(text) {
-  // Be tolerant — the model is asked to return raw JSON, but strip a stray
-  // code fence if one slips through.
-  const trimmed = text.trim();
-  const fence = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-  const candidate = fence ? fence[1] : trimmed;
-  const first = candidate.indexOf('[');
-  const last = candidate.lastIndexOf(']');
-  if (first === -1 || last === -1 || last < first) {
-    throw new Error('Claude did not return a JSON array.');
-  }
-  return JSON.parse(candidate.slice(first, last + 1));
-}
-
-export async function findTensions(notes, apiKey) {
-  if (!apiKey) throw new Error('Missing Anthropic API key.');
-  if (!notes || notes.length < 2) {
-    throw new Error('Need at least two notes to find tensions.');
-  }
+export async function streamChat(conversationMessages, notes, apiKey, onChunk) {
+  if (!apiKey) throw new Error('No API key set — go to Profile to add one.');
 
   const res = await fetch(API_URL, {
     method: 'POST',
@@ -61,14 +48,10 @@ export async function findTensions(notes, apiKey) {
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 2048,
-      system: SYSTEM_PROMPT,
-      messages: [
-        {
-          role: 'user',
-          content: serializeNotes(notes),
-        },
-      ],
+      max_tokens: 1024,
+      stream: true,
+      system: buildSystemPrompt(notes),
+      messages: conversationMessages,
     }),
   });
 
@@ -80,18 +63,35 @@ export async function findTensions(notes, apiKey) {
     } catch {
       detail = await res.text();
     }
-    throw new Error(`Claude API error (${res.status}): ${detail}`);
+    throw new Error(`API error (${res.status}): ${detail}`);
   }
 
-  const data = await res.json();
-  const text =
-    data?.content?.find?.((b) => b.type === 'text')?.text ??
-    data?.content?.[0]?.text ??
-    '';
-  if (!text) throw new Error('Claude returned no text content.');
-  const pairs = extractJSON(text);
-  if (!Array.isArray(pairs)) throw new Error('Expected a JSON array.');
-  return pairs.filter(
-    (p) => p && p.noteA && p.noteB && p.thread && p.bridge
-  );
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const data = line.slice(6).trim();
+      if (data === '[DONE]') return;
+      try {
+        const parsed = JSON.parse(data);
+        if (
+          parsed.type === 'content_block_delta' &&
+          parsed.delta?.type === 'text_delta'
+        ) {
+          onChunk(parsed.delta.text);
+        }
+      } catch {
+        // ignore malformed chunks
+      }
+    }
+  }
 }

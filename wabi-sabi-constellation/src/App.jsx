@@ -1,10 +1,23 @@
 import { useEffect, useState } from 'react';
-import NotesPanel from './components/NotesPanel.jsx';
-import ConstellationPanel from './components/ConstellationPanel.jsx';
+import HomeScreen from './components/HomeScreen.jsx';
+import LibraryScreen from './components/LibraryScreen.jsx';
+import ProfileScreen from './components/ProfileScreen.jsx';
+import AddNoteModal from './components/AddNoteModal.jsx';
+import BottomNav from './components/BottomNav.jsx';
 import { loadNotes, saveNotes, newId } from './lib/storage.js';
 import { buildSeedNotes } from './lib/seedNotes.js';
+import { getStoredKey, setStoredKey } from './lib/claude.js';
+
+function loadProfile() {
+  try {
+    return JSON.parse(localStorage.getItem('wsc.profile.v1')) || { name: '' };
+  } catch {
+    return { name: '' };
+  }
+}
 
 export default function App() {
+  const [tab, setTab] = useState('home');
   const [notes, setNotes] = useState(() => {
     const stored = loadNotes();
     if (stored && stored.length) return stored;
@@ -12,10 +25,17 @@ export default function App() {
     saveNotes(seeded);
     return seeded;
   });
+  const [showAdd, setShowAdd] = useState(false);
+  const [apiKey, setApiKey] = useState(getStoredKey);
+  const [profile, setProfile] = useState(loadProfile);
 
   useEffect(() => {
     saveNotes(notes);
   }, [notes]);
+
+  useEffect(() => {
+    localStorage.setItem('wsc.profile.v1', JSON.stringify(profile));
+  }, [profile]);
 
   function addNote({ title, body }) {
     setNotes((prev) => [
@@ -32,38 +52,55 @@ export default function App() {
     setNotes((prev) => prev.filter((n) => n.id !== id));
   }
 
-  return (
-    <div className="relative z-10 min-h-screen w-full">
-      <header className="pt-12 pb-8 px-16 border-b border-ink/10">
-        <div className="max-w-[1280px] mx-auto flex items-baseline justify-between">
-          <div>
-            <h1 className="font-serif text-3xl italic text-ink">
-              Wabi Sabi Constellation
-            </h1>
-            <p className="font-serif text-base text-ink-faded mt-2 max-w-xl leading-relaxed">
-              the notes you have written, and the threads between them you
-              haven't noticed yet.
-            </p>
-          </div>
-          <p className="font-sans text-[11px] tracking-[0.3em] uppercase text-ink-faded">
-            a prototype · v0
-          </p>
-        </div>
-      </header>
+  function handleUpdateKey(key) {
+    setApiKey(key);
+    setStoredKey(key);
+  }
 
-      <main className="max-w-[1280px] mx-auto px-16 py-12">
-        <div className="grid grid-cols-2 gap-16 h-[calc(100vh-220px)]">
-          <NotesPanel
-            notes={notes}
-            onAdd={addNote}
-            onUpdate={updateNote}
-            onDelete={deleteNote}
-          />
-          <div className="border-l border-ink/10 pl-16 -ml-16">
-            <ConstellationPanel notes={notes} />
-          </div>
+  return (
+    <div className="h-full flex items-start justify-center">
+      <div className="w-full max-w-[430px] h-full flex flex-col bg-white shadow-2xl overflow-hidden relative">
+        {/* Active screen */}
+        <div className="flex-1 overflow-hidden">
+          {tab === 'home' && (
+            <HomeScreen
+              notes={notes}
+              apiKey={apiKey}
+              profileName={profile.name}
+            />
+          )}
+          {tab === 'library' && (
+            <LibraryScreen
+              notes={notes}
+              onDelete={deleteNote}
+              onUpdate={updateNote}
+            />
+          )}
+          {tab === 'profile' && (
+            <ProfileScreen
+              profile={profile}
+              onUpdateProfile={setProfile}
+              apiKey={apiKey}
+              onUpdateKey={handleUpdateKey}
+              notesCount={notes.length}
+            />
+          )}
         </div>
-      </main>
+
+        {/* Bottom nav */}
+        <BottomNav active={tab} onChange={setTab} onAdd={() => setShowAdd(true)} />
+
+        {/* Add note modal */}
+        {showAdd && (
+          <AddNoteModal
+            onSave={(note) => {
+              addNote(note);
+              setShowAdd(false);
+            }}
+            onClose={() => setShowAdd(false)}
+          />
+        )}
+      </div>
     </div>
   );
 }
